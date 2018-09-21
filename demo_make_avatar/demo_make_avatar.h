@@ -23,6 +23,7 @@ private slots:
 	void stopTask(bool);
 	void clearTask(bool);
 	void printLog(const QString& content);
+	void taskResult(const QImage& avatar);
 
 signals:
 	void sigStartTask(const QString& url, const QSize& sz);//开始任务

@@ -144,13 +144,14 @@ loop:
 int Task::makeAvatar(const int& id)
 {
 	int ret = 0;
-	const QString& localFilePath = GetSavePath() + mCurrentTask.fileName;
+	const QString& localFilePath = GetSavePath() + QDir::separator() + mCurrentTask.fileName;
 	QImage&& image = MakeRoundAvatar(localFilePath, mCurrentTask.size);
 	if (!image.isNull())
 	{
 		ret = 0;
 		changedState(3);
 		addImage(image);
+		emit taskResult(image);
 	}
 	else
 	{

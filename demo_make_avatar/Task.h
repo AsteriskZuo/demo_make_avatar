@@ -12,6 +12,7 @@ using namespace demo;
 #include <QSharedPointer>
 #include <QMutex>
 #include <QWaitCondition>
+#include <QImage>
 
 struct TaskData 
 {
@@ -89,6 +90,7 @@ public slots:
 signals:
 	void cancelTask();//取消任务
 	void printLog(const QString& content);
+	void taskResult(const QImage& avatar);
 };
 
 #endif //TASK_H

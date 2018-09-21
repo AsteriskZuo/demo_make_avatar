@@ -18,6 +18,7 @@ demo_make_avatar::demo_make_avatar(QWidget *parent)
 	connect(this, &demo_make_avatar::siogStopTask, mpTask, &Task::stopTask, Qt::QueuedConnection);
 	connect(this, &demo_make_avatar::sigClearTask, mpTask, &Task::clearTask, Qt::QueuedConnection);
 	connect(mpTask, &Task::printLog, this, &demo_make_avatar::printLog, Qt::QueuedConnection);
+	connect(mpTask, &Task::taskResult, this, &demo_make_avatar::taskResult, Qt::QueuedConnection);
 	mpTask->start();
 }
 
@@ -74,6 +75,7 @@ void demo_make_avatar::clearTask(bool)
 {
 	ui.lineEdit->clear();
 	ui.plainTextEdit->clear();
+	ui.textEdit_avatar->clear();
 
 	emit sigClearTask();
 }
@@ -81,4 +83,36 @@ void demo_make_avatar::clearTask(bool)
 void demo_make_avatar::printLog(const QString& content)
 {
 	ui.plainTextEdit->appendPlainText(content);
+}
+
+void demo_make_avatar::taskResult(const QImage& avatar)
+{
+	//////////////////////////////////////////////////////////////////////////TEST START
+
+	//QFile file("test");
+	//if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+	//{
+	//	QDataStream s(&file);
+	//	s << avatar;
+	//	file.flush();
+	//	file.close();
+	//}
+
+	//////////////////////////////////////////////////////////////////////////TEST END
+
+	if (!avatar.isNull())
+	{
+		QTextCursor cursor = ui.textEdit_avatar->textCursor();
+		cursor.insertImage(avatar);
+
+		//////////////////////////////////////////////////////////////////////////TEST START
+
+		//QString imageName = QString::number(avatar.cacheKey());
+		//QTextDocument *document = ui.textEdit_avatar->document();
+		//QImage avatar_copy = document->resource(QTextDocument::ImageResource, QUrl(imageName)).value<QImage>();
+		//cursor.insertImage(avatar);
+		//avatar.save("d:\\test3", "png");
+
+		//////////////////////////////////////////////////////////////////////////TEST END
+	}
 }
