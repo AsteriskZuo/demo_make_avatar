@@ -43,7 +43,7 @@ void demo_make_avatar::selectFile(bool)
 		{
 			QByteArray contentb = file.readAll();
 			QString contents = QString::fromUtf8(contentb);
-			mTaskList = contents.split(';');
+			mTaskList = contents.split(';', QString::SkipEmptyParts);
 		}
 	}
 }
