@@ -5,9 +5,13 @@
 #include <QEventLoop>
 #include <QFile>
 #include <QDir>
+#include <QThreadPool>
 #include <QDebug>
 
+
+
 static int sid = 0;
+const static quint64 smaxsize = 1024 * 1024 * 1024;
 
 TaskData::TaskData()
 	: state(0)
@@ -29,6 +33,7 @@ void TaskData::reset()
 Task::Task()
 	: mRequestQuit(false)
 	, mManualStop(false)
+	, mThreshold(0)
 {
 	const QString& localFileDir = GetSavePath();
 	QDir dir(localFileDir);
@@ -37,6 +42,9 @@ Task::Task()
 		int ret  = dir.mkdir(localFileDir);
 		qDebug() << __FUNCTION__ << ret;
 	}
+
+	mThreshold = 1024 * 1024 * 10;
+	mMaxTaskCount = 5;
 }
 
 
@@ -75,7 +83,7 @@ void Task::clearTask()
 
 int Task::download(const int& id)
 {
-loop:
+stmtloop:
 
 
 	QNetworkRequest request;
@@ -87,58 +95,110 @@ loop:
 	}
 	request.setUrl(mCurrentTask.url);
 
-	QNetworkAccessManager manager;
-	QNetworkReply	*pReply = manager.get(request);
-	ReplyTimeout *pTimeout = new ReplyTimeout(pReply, 3000);
-	connect(this, &Task::cancelTask, pReply, &QNetworkReply::abort, Qt::QueuedConnection);
 
-	QEventLoop loop;
-	connect(pReply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
-	loop.exec();
+	bool isbigfile = false;
 
-	QNetworkReply::NetworkError errorCode = pReply->error();
-	if (pReply->error() == QNetworkReply::NoError)
+	if (true)
 	{
-		int statusCode = pReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-		if (statusCode == 301 || statusCode == 302) {
-			qDebug() << "statusCode: " << statusCode << " path: " << mCurrentTask.url;
-			mCurrentTask.url = pReply->attribute(QNetworkRequest::RedirectionTargetAttribute).toString();
-			qDebug() << "statusCode: " << statusCode << " new path: " << mCurrentTask.url;
-			goto loop;
+		//先获取头文件
+		QNetworkAccessManager _manager;
+		QNetworkReply* _pReply = _manager.head(request);
+		ReplyTimeout *_pTimeout = new ReplyTimeout(_pReply, 3000);
+		connect(this, &Task::cancelTask, _pReply, &QNetworkReply::abort, Qt::QueuedConnection);
+		QEventLoop _loop;
+		connect(_pReply, &QNetworkReply::finished, &_loop, &QEventLoop::quit);
+		_loop.exec();
+		QNetworkReply::NetworkError errorCode = _pReply->error();
+		if (errorCode == QNetworkReply::NoError && !_pTimeout->isTimeout())
+		{
+			int statusCode = _pReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+			if (statusCode == 301 || statusCode == 302) {
+				qDebug() << "statusCode: " << statusCode << " path: " << mCurrentTask.url;
+				mCurrentTask.url = _pReply->attribute(QNetworkRequest::RedirectionTargetAttribute).toString();
+				qDebug() << "statusCode: " << statusCode << " new path: " << mCurrentTask.url;
+				goto stmtloop;
+			}
+
+			QString&& length = _pReply->header(QNetworkRequest::ContentLengthHeader).toString();
+			QString&& type = _pReply->header(QNetworkRequest::ContentTypeHeader).toString();
+			QString&& cookie = _pReply->header(QNetworkRequest::CookieHeader).toString();
+			QString&& disp = _pReply->header(QNetworkRequest::ContentDispositionHeader).toString();
+			QString&& agen = _pReply->header(QNetworkRequest::UserAgentHeader).toString();
+			QString&& svr = _pReply->header(QNetworkRequest::ServerHeader).toString();
+			qDebug() << __FUNCTION__ << "ContentLengthHeader:" << length
+				<< "ContentTypeHeader:" << type
+				<< "CookieHeader:" << cookie
+				<< "ContentDispositionHeader:" << disp
+				<< "UserAgentHeader:" << agen
+				<< "ServerHeader:" << svr;
+			
+			if (mThreshold < length.toULongLong())
+			{
+				isbigfile = true;
+			}
 		}
+
 	}
 
 	int ret = 0;
-	if (errorCode == QNetworkReply::NoError && !pTimeout->isTimeout())
+	QString errorContent;
+	if (isbigfile)
 	{
-		QByteArray buffer = pReply->readAll();
-		if (0 < buffer.size())
-		{
-			const QString& localFilePath = GetSavePath() + QDir::separator() + mCurrentTask.fileName;
-			QFile file(localFilePath);
-			if (file.open(QIODevice::ReadWrite | QIODevice::Truncate) && file.isWritable())
-			{
-				file.seek(0);
-				file.write(buffer);
-				file.close();
-				ret = 0;
-			}
-			else ret = 1;
-		}
-		else ret = 2;
-	}
-	else ret = 3;
-	if (0 == ret)
-	{
-		changedState(2);
+		//do big file
+		doBigFile(id);
+		ret = 4;
 	}
 	else
 	{
-		qDebug() << __FUNCTION__ << errorCode << pReply->errorString() << pTimeout->isTimeout() << ret;
-		changedState(42);
-		mErrorTaskList.enqueue(mCurrentTask);
+		QNetworkAccessManager manager;
+		QNetworkReply	*pReply = manager.get(request);
+		ReplyTimeout *pTimeout = new ReplyTimeout(pReply, 3000);
+		connect(this, &Task::cancelTask, pReply, &QNetworkReply::abort, Qt::QueuedConnection);
+
+		QEventLoop loop;
+		connect(pReply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+		loop.exec();
+
+		QNetworkReply::NetworkError errorCode = pReply->error();
+		errorContent = pReply->errorString();
+		if (errorCode == QNetworkReply::NoError && !pTimeout->isTimeout())
+		{
+			QByteArray buffer = pReply->readAll();
+			if (0 < buffer.size())
+			{
+				const QString& localFilePath = GetSavePath() + QDir::separator() + mCurrentTask.fileName;
+				QFile file(localFilePath);
+				if (file.open(QIODevice::ReadWrite | QIODevice::Truncate) && file.isWritable())
+				{
+					file.seek(0);
+					file.write(buffer);
+					file.close();
+					ret = 0;
+				}
+				else ret = 1;
+			}
+			else ret = 2;
+		}
+		else ret = 3;
+		if (0 == ret)
+		{
+			changedState(2);
+		}
+		else
+		{
+			qDebug() << __FUNCTION__ << errorCode << pReply->errorString() << pTimeout->isTimeout() << ret;
+			changedState(42);
+			mErrorTaskList.enqueue(mCurrentTask);
+		}
 	}
-	emit printLog(QString("download: id=%1; url=%2; name=%3; result=%4;").arg(mCurrentTask.id).arg(mCurrentTask.url).arg(mCurrentTask.fileName).arg(QString::number(ret)));
+
+	emit printLog(QString("%5: id=%1; url=%2; name=%3; result=%4;")
+		.arg(mCurrentTask.id)
+		.arg(mCurrentTask.url)
+		.arg(mCurrentTask.fileName)
+		.arg(QString::number(ret))
+		.arg(__FUNCTION__)
+		.arg(errorContent));
 	return ret;
 }
 int Task::makeAvatar(const int& id)
@@ -160,7 +220,12 @@ int Task::makeAvatar(const int& id)
 		changedState(43);
 		mErrorTaskList.enqueue(mCurrentTask);
 	}
-	emit printLog(QString("makeAvatar: id=%1; url=%2; name=%3; result=%4;").arg(mCurrentTask.id).arg(mCurrentTask.url).arg(mCurrentTask.fileName).arg(QString::number(ret)));
+	emit printLog(QString("%5: id=%1; url=%2; name=%3; result=%4;")
+		.arg(mCurrentTask.id)
+		.arg(mCurrentTask.url)
+		.arg(mCurrentTask.fileName)
+		.arg(QString::number(ret))
+		.arg(__FUNCTION__));
 	return ret;
 }
 
@@ -254,4 +319,156 @@ void Task::addImage(const QImage& avatar)
 		list.append(a);
 		mAvatar.insert(mCurrentTask.fileName, list);
 	}
+}
+
+void Task::doBigFile(const int& id)
+{
+	//耗时较长的任务
+	BigTask* pBigTask = new BigTask(mCurrentTask);
+	if (mMaxTaskCount < mBigWorkingTaskList.size())
+	{
+		mBigWaitTaskList.enqueue(pBigTask);
+	}
+	else
+	{
+		if (mBigWorkingTaskList.contains(id))
+		{
+			qWarning() << __FUNCTION__ << "big task is queue." << id;
+			mBigWorkingTaskList.remove(id);
+		}
+		doBigTask(pBigTask);
+	}
+}
+
+void Task::doBigTask(BigTask* pBigTask)
+{
+	Q_ASSERT(pBigTask);
+	mBigWorkingTaskList.insert(pBigTask->getTaskInfo().id, pBigTask);
+	connect(this, &Task::startBigTask, pBigTask, &BigTask::startBigTask, Qt::QueuedConnection);
+	connect(this, &Task::stopBigTask, pBigTask, &BigTask::stopBigTask, Qt::QueuedConnection);
+	connect(pBigTask, &BigTask::retBigTaskResult, this, &Task::retBigTaskResult, Qt::QueuedConnection);
+	connect(pBigTask, &BigTask::printLog, this, &Task::printLog, Qt::QueuedConnection);
+	pBigTask->setAutoDelete(false);
+	pBigTask->startBigTask();
+}
+
+void Task::retBigTaskResult(const int& id, const bool& result, const QImage& avatar)
+{
+	if (mBigWorkingTaskList.contains(id))
+	{
+		TaskData&& info = mBigWorkingTaskList[id]->getTaskInfo();
+		if (result)
+		{
+			QImage _avatar(avatar);
+			addImage(_avatar);
+			emit taskResult(_avatar);
+
+			BigTask* pBigTask = mBigWorkingTaskList.take(id);
+			delete pBigTask; pBigTask = nullptr;
+		}
+		else
+		{
+			changedState(44);
+			mErrorTaskList.append(info);
+		}
+
+		if (mBigWaitTaskList.size())
+		{
+			BigTask* pBigTask = mBigWaitTaskList.dequeue();
+			doBigTask(pBigTask);
+		}
+		return;
+	}
+	qDebug() << __FUNCTION__ << "big work task is not existed." << id;
+}
+
+BigTask::BigTask(const TaskData& info, QObject* parent)
+	: QObject(parent)
+	, mBigTask(info)
+{
+
+}
+
+BigTask::~BigTask()
+{
+
+}
+
+TaskData BigTask::getTaskInfo()
+{
+	return mBigTask;
+}
+
+void BigTask::run()
+{
+	//download file and make avatar
+	bool ret = false;
+	do 
+	{
+		if (!download())
+			break;
+
+		if (!makeAvatar())
+			break;
+		ret = true;
+	} while (false);
+	emit retBigTaskResult(mBigTask.id, ret, mAvatar);
+}
+
+void BigTask::startBigTask()
+{
+	QThreadPool::globalInstance()->start(this);
+}
+
+void BigTask::stopBigTask()
+{
+	QThreadPool::globalInstance()->cancel(this);
+}
+
+bool BigTask::download()
+{
+	quint64 filesize = 0;
+	bool ret = false;
+	QNetworkRequest request;
+	if (mBigTask.url.startsWith("https://"))
+	{
+		QSslConfiguration config;
+		config.setPeerVerifyMode(QSslSocket::VerifyNone);
+		request.setSslConfiguration(config);
+	}
+	request.setUrl(mBigTask.url);
+	QNetworkAccessManager manager;
+	QNetworkReply	*pReply = manager.get(request);
+	ReplyTimeout *pTimeout = new ReplyTimeout(pReply, 3000);
+	connect(this, &BigTask::cancelTask, pReply, &QNetworkReply::abort, Qt::QueuedConnection);
+
+	QEventLoop loop;
+	connect(pReply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+	loop.exec();
+
+	QNetworkReply::NetworkError errorCode = pReply->error();
+	if (errorCode == QNetworkReply::NoError && !pTimeout->isTimeout())
+	{
+		QByteArray buffer = pReply->readAll();
+		filesize = buffer.size();
+		if (0 < filesize && smaxsize > filesize)
+		{
+			ret = mAvatar.loadFromData(buffer);
+		}
+	}
+	emit printLog(QString("%5: id=%1; url=%2; name=%3; result=%4; size=%6; error=%7;")
+		.arg(mBigTask.id)
+		.arg(mBigTask.url)
+		.arg(mBigTask.fileName)
+		.arg(QString::number(ret))
+		.arg(__FUNCTION__)
+		.arg(filesize)
+		.arg(pReply->errorString()));
+	return ret;
+}
+
+bool BigTask::makeAvatar()
+{
+	mAvatar = MakeRoundAvatar(mAvatar, mBigTask.size);
+	return true;
 }

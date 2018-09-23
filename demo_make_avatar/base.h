@@ -26,6 +26,7 @@ TypeName& operator=(const TypeName&) = delete
 	QSize GetAvatarSize();
 	QString GetFileName(const QString& url);
 	QImage MakeRoundAvatar(QString strPath, QSize size);
+	QImage MakeRoundAvatar(const QImage& avatar, QSize size);
 
 
 	class ReplyTimeout : public QObject

@@ -48,6 +48,21 @@ QImage demo::MakeRoundAvatar(QString strPath, QSize size)
 }
 
 
+QImage demo::MakeRoundAvatar(const QImage& avatar, QSize size)
+{
+	QImage dealPix(size, QImage::Format_ARGB32);
+	dealPix.fill(Qt::transparent);
+	QPainter painter(&dealPix);
+	QImage _avatar;
+	_avatar = avatar.scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+	QBrush brush(_avatar);//背景图片
+	painter.setBrush(brush);
+	painter.setPen(Qt::transparent);  //边框色
+	painter.setRenderHint(QPainter::Antialiasing);
+	painter.drawRoundedRect(_avatar.rect(), 5, 5); //圆角5像素
+	return std::move(dealPix);
+}
+
 demo::ReplyTimeout::ReplyTimeout(QNetworkReply *reply, const int timeout)
 	: QObject(reply)
 	, reply(reply)
