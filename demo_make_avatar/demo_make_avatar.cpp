@@ -41,8 +41,9 @@ void demo_make_avatar::selectFile(bool)
 		QFile file(taskfile);
 		if (file.open(QIODevice::ReadOnly))
 		{
-			QByteArray content = file.readAll();
-			mTaskList = content.split(';');
+			QByteArray contentb = file.readAll();
+			QString contents = QString::fromUtf8(contentb);
+			mTaskList = contents.split(';');
 		}
 	}
 }
@@ -52,11 +53,11 @@ void demo_make_avatar::startTask(bool)
 	ui.pushButton_start->setEnabled(false);
 	ui.pushButton_clear->setEnabled(false);
 
-	for (const QByteArray& a : mTaskList)
+	for (const QString& a : mTaskList)
 	{
 		if (!a.isEmpty())
 		{
-			QString url = QString::fromUtf8(a);
+			QString url = a;
 			url = url.trimmed();
 			emit sigStartTask(url, QSize(30, 30));
 		}

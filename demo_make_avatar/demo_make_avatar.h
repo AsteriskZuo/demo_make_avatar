@@ -15,7 +15,7 @@ public:
 private:
 	Ui::demo_make_avatarClass ui;
 	Task* mpTask;
-	QList<QByteArray> mTaskList;
+	QList<QString> mTaskList;
 
 private slots:
 	void selectFile(bool);
