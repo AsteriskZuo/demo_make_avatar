@@ -214,7 +214,7 @@ QImage Task::getImage(const QString& name, const QSize& sz)
 		{
 			if (sz == a.size)
 			{
-				QImage avatar = *(a.spImage.data());
+				avatar = *(a.spImage.data());
 				break;
 			}
 		}
